@@ -2,7 +2,9 @@
 
 This program implements OpenTofu's [external key provider protocol](https://opentofu.org/docs/language/state/encryption/#external-key-provider) and reads a key from [gopass](https://www.gopass.pw/).
 
-It writes the required provider header to stdout, reads the JSON request from stdin, and returns the gopass secret as a base64-encoded encryption key. The secret path is also returned as `external_data`, so OpenTofu can pass the metadata back on a later run.
+It writes the required provider header to stdout, reads the JSON request from stdin, and returns the gopass secret as a base64-encoded encryption key.
+
+The initially configured password store and secret path are stored in `external_data`, so OpenTofu can pass the metadata back on a later run.
 
 ## Requirements
 
@@ -22,12 +24,18 @@ The Makefile provides the same build as `make` and produces a statically linked,
 
 ## Configure OpenTofu
 
-The basic configuration uses a default secret path, `opentofu/state`:
+The basic configuration uses a default secret path, `opentofu/state`.
+
+This external key provider is meant to be chained together with the `pbkdf2` provider as in this example:
 
 ```hcl
 encryption {
   key_provider "external" "gopass" {
     command = ["/path/to/tofu-key-provider-gopass"]
+  }
+
+  key_provider "pbkdf2" "this" {
+    chain = key_provider.external.pass
   }
 }
 ```
@@ -58,7 +66,7 @@ The selected store is saved in `external_data` for later decryption requests.
 A `PASSWORD_STORE_DIR` environment variable set on a later request overrides the
 stored value.
 
-## Behavior
+## Behaviour
 
 - A request with `external_data: null` produces a new encryption key.
 - A request with existing metadata produces encryption and decryption keys.
