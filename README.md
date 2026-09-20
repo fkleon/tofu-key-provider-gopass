@@ -48,11 +48,15 @@ An explicit path takes precedence over the path saved in `external_data.path`.
 
 ### Custom gopass store
 
-Select a non-default password store by setting the `PASSWORD_STORE_DIR` environment variable:
+Select a non-default password store by setting `PASSWORD_STORE_DIR`:
 
 ```sh
 PASSWORD_STORE_DIR=/path/to/password-store tofu-key-provider-gopass
 ```
+
+The selected store is saved in `external_data` for later decryption requests.
+A `PASSWORD_STORE_DIR` environment variable set on a later request overrides the
+stored value.
 
 ## Behavior
 

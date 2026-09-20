@@ -13,7 +13,10 @@ import (
 	"github.com/gopasspw/gopass/pkg/gopass/api"
 )
 
-const defaultSecretPath = "opentofu/state"
+const (
+	defaultSecretPath = "opentofu/state"
+	passwordStoreEnv  = "PASSWORD_STORE_DIR"
+)
 
 // Header is the initial greeting the key provider sends out.
 type Header struct {
@@ -51,6 +54,24 @@ func secretPathFor(args []string, input Input) (string, error) {
 	return defaultSecretPath, nil
 }
 
+// passwordStoreDirFor returns the gopass store directory. An environment
+// variable overrides the value saved in existing metadata.
+func passwordStoreDirFor(input Input) (string, error) {
+	if storeDir := os.Getenv(passwordStoreEnv); storeDir != "" {
+		return storeDir, nil
+	}
+	if input != nil {
+		if storeDir, ok := input.ExternalData["store"]; ok {
+			storeDir, ok := storeDir.(string)
+			if !ok || storeDir == "" {
+				return "", fmt.Errorf("external_data.store must be a non-empty string")
+			}
+			return storeDir, nil
+		}
+	}
+	return "", nil
+}
+
 // parseInput parses the metadata sent by OpenTofu. OpenTofu sends an object
 // with external_data set to null when it is encrypting new data. Treat that as
 // no existing metadata, rather than as a decryption request.
@@ -80,8 +101,16 @@ type Output struct {
 	Meta Metadata `json:"meta"`
 }
 
-func lookupEncryptionSecret(secretPath string) (gopass.Secret, error) {
+func lookupEncryptionSecret(storeDir, secretPath string) (gopass.Secret, error) {
 	ctx := context.Background()
+
+	// If a custom store dir is configured, set the PASSWORD_STORE_DIR env
+	// which is respected by gopass.
+	if storeDir != "" {
+		if err := os.Setenv(passwordStoreEnv, storeDir); err != nil {
+			return nil, fmt.Errorf("failed to configure password store: %w", err)
+		}
+	}
 
 	gp, err := api.New(ctx)
 	if err != nil {
@@ -120,14 +149,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to parse stdin: %v", err)
 	}
+
+	// Lookup secret path and password store dir from external state,
+	// with precedence for command-line args and env vars.
 	secretPath, err := secretPathFor(os.Args[1:], inMeta)
 	if err != nil {
 		log.Fatalf("Failed to determine secret path: %v", err)
 	}
+	storeDir, err := passwordStoreDirFor(inMeta)
+	if err != nil {
+		log.Fatalf("Failed to determine password store: %v", err)
+	}
 
-	var keys Keys
-
-	sec, err := lookupEncryptionSecret(secretPath)
+	// Lookup the encryption secret from gopass.
+	sec, err := lookupEncryptionSecret(storeDir, secretPath)
 	if err != nil {
 		log.Fatalf("Failed to lookup encryption key: %v", err)
 	}
@@ -135,18 +170,20 @@ func main() {
 	key := []byte(sec.Password())
 	data := make([]byte, base64.StdEncoding.EncodedLen(len(key)))
 	base64.StdEncoding.Encode(data, key)
+
+	var keys Keys
 	keys.EncryptionKey = data
 	if inMeta != nil {
 		keys.DecryptionKey = data
 	}
 
+	externalData := map[string]any{
+		"path":  secretPath,
+		"store": storeDir,
+	}
 	output := Output{
 		Keys: keys,
-		Meta: Metadata{
-			ExternalData: map[string]any{
-				"path": secretPath,
-			},
-		},
+		Meta: Metadata{ExternalData: externalData},
 	}
 	outputData, err := json.Marshal(output)
 	if err != nil {

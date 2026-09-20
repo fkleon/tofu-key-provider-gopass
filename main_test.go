@@ -60,6 +60,40 @@ func TestSecretPathFor(t *testing.T) {
 	}
 }
 
+func TestPasswordStoreDirFor(t *testing.T) {
+	t.Setenv(passwordStoreEnv, "")
+
+	stored := &Metadata{ExternalData: map[string]any{
+		"store": "/stored/passwords",
+	}}
+	got, err := passwordStoreDirFor(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/stored/passwords" {
+		t.Errorf("passwordStoreDirFor() = %q, want %q", got, "/stored/passwords")
+	}
+
+	t.Setenv(passwordStoreEnv, "/override/passwords")
+	got, err = passwordStoreDirFor(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/override/passwords" {
+		t.Errorf("passwordStoreDirFor() override = %q, want %q", got, "/override/passwords")
+	}
+}
+
+func TestPasswordStoreDirForRejectsInvalidStoredValue(t *testing.T) {
+	t.Setenv(passwordStoreEnv, "")
+	_, err := passwordStoreDirFor(&Metadata{ExternalData: map[string]any{
+		"store": 42,
+	}})
+	if err == nil {
+		t.Fatal("passwordStoreDirFor() error = nil, want an error")
+	}
+}
+
 func TestParseInput(t *testing.T) {
 	tests := []struct {
 		name     string
