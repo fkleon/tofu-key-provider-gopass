@@ -4,7 +4,7 @@ This program implements OpenTofu's [external key provider protocol](https://open
 
 It writes the required provider header to stdout, reads the JSON request from stdin, and returns the gopass secret as a base64-encoded encryption key.
 
-The initially configured password store and secret path are stored in `external_data`, so OpenTofu can pass the metadata back on a later run.
+The configured secret path and, when specified, password store are stored in `external_data`, so OpenTofu can pass the metadata back on a later run.
 
 ## Requirements
 
@@ -20,11 +20,11 @@ cd tofu-key-provider-gopass
 go build -o tofu-key-provider-gopass .
 ```
 
-The Makefile provides the same build as `make` and produces a statically linked, stripped binary when supported by the environment.
+The Makefile builds a stripped binary and embeds the current Git version and build date.
 
 ## Configure OpenTofu
 
-The basic configuration uses a default secret path, `opentofu/state`.
+The basic configuration uses the default secret path, `opentofu/state`.
 
 This external key provider is meant to be chained together with the `pbkdf2` provider as in this example:
 
@@ -35,7 +35,7 @@ encryption {
   }
 
   key_provider "pbkdf2" "this" {
-    chain = key_provider.external.pass
+    chain = key_provider.external.gopass
   }
 }
 ```
@@ -46,30 +46,29 @@ The exact `encryption` block should match the OpenTofu version and encryption co
 
 ### Custom secret path
 
-Pass a secret path as the first argument when you want to use a path other than the default:
+Use `-path` to select a secret other than the default:
 
 ```hcl
-command = ["/path/to/tofu-key-provider-gopass", "infra/opentofu"]
+command = ["/path/to/tofu-key-provider-gopass", "-path", "infra/opentofu"]
 ```
 
-An explicit path takes precedence over the path saved in `external_data.path`.
+For decryption, a path saved in `external_data.path` takes precedence over `-path`.
 
 ### Custom gopass store
 
-Select a non-default password store by setting `PASSWORD_STORE_DIR`:
+Use `-store` or `PASSWORD_STORE_DIR` to select a non-default password store:
 
-```sh
-PASSWORD_STORE_DIR=/path/to/password-store tofu-key-provider-gopass
+```hcl
+command = ["/path/to/tofu-key-provider-gopass", "-store", "/path/to/password-store"]
 ```
 
-The selected store is saved in `external_data` for later decryption requests.
-A `PASSWORD_STORE_DIR` environment variable set on a later request overrides the
-stored value.
+The selected store is saved in `external_data.store` for later decryption requests. A stored value takes precedence over `-store` and `PASSWORD_STORE_DIR` when decrypting.
 
 ## Behaviour
 
 - A request with `external_data: null` produces a new encryption key.
 - A request with existing metadata produces encryption and decryption keys.
+- `-version` prints build information and exits.
 - Errors, including a missing gopass store or secret, are written to stderr and cause a non-zero exit.
 
 ## Tests

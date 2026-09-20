@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -13,10 +14,29 @@ import (
 	"github.com/gopasspw/gopass/pkg/gopass/api"
 )
 
-const (
-	defaultSecretPath = "opentofu/state"
-	passwordStoreEnv  = "PASSWORD_STORE_DIR"
+// Build metadata. These variables are set at build time using -ldflags.
+var (
+	name    string = "tofu-key-provider-gopass"
+	version string = "dev"
+	date    string
 )
+
+// Command-line flags.
+var (
+	secretPath  string
+	storeDir    string
+	versionFlag bool
+)
+
+// The environment variable used to configure the gopass store directory.
+const passwordStoreEnv = "PASSWORD_STORE_DIR"
+
+func init() {
+	const defaultSecretPath = "opentofu/state"
+	flag.StringVar(&secretPath, "path", defaultSecretPath, "secret path in gopass")
+	flag.StringVar(&storeDir, "store", os.Getenv(passwordStoreEnv), "password store directory")
+	flag.BoolVar(&versionFlag, "version", false, "print version and exit")
+}
 
 // Header is the initial greeting the key provider sends out.
 type Header struct {
@@ -35,44 +55,46 @@ type Metadata struct {
 // data needs to be decrypted.
 type Input *Metadata
 
-// secretPathFor returns the configured gopass path. An explicit command-line
-// path takes precedence, followed by the path stored in existing metadata, and
-// finally the default path.
-func secretPathFor(args []string, input Input) (string, error) {
-	if len(args) > 0 && args[0] != "" {
-		log.Printf("Using secret path from CLI argument: %q", args[0])
-		return args[0], nil
-	}
+// secretPathFor returns the configured gopass path. The path stored in existing
+// metadata takes precendence, followed by the command-line argument.
+// If neither is set, an error is returned.
+func secretPathFor(input Input, secretPath string) (string, error) {
 	if input != nil {
 		if path, ok := input.ExternalData["path"]; ok {
 			path, ok := path.(string)
 			if !ok || path == "" {
 				return "", fmt.Errorf("external_data.path must be a non-empty string")
 			}
-			log.Printf("Using secret path from external data: %q", path)
+			log.Printf("Using secret path: %q (from external data)", path)
 			return path, nil
 		}
 	}
-	return defaultSecretPath, nil
+	if secretPath != "" {
+		log.Printf("Using secret path: %q (from CLI)", secretPath)
+		return secretPath, nil
+	}
+	return "", fmt.Errorf("secret path is required")
 }
 
-// passwordStoreDirFor returns the gopass store directory. An environment
-// variable overrides the value saved in existing metadata.
-func passwordStoreDirFor(input Input) (string, error) {
-	if storeDir := os.Getenv(passwordStoreEnv); storeDir != "" {
-		log.Printf("Using password store dir from env: %q", storeDir)
-		return storeDir, nil
-	}
+// passwordStoreDirFor returns the gopass store directory. The directory stored in
+// existing metadata takes precedence, followed by the command-line argument or
+// environment variable. If neither is set, an empty string is returned.
+func passwordStoreDirFor(input Input, storeDir string) (string, error) {
 	if input != nil {
 		if storeDir, ok := input.ExternalData["store"]; ok {
 			storeDir, ok := storeDir.(string)
 			if !ok || storeDir == "" {
 				return "", fmt.Errorf("external_data.store must be a non-empty string")
 			}
-			log.Printf("Using password store dir from external data: %q", storeDir)
+			log.Printf("Using password store dir: %q (from external data)", storeDir)
 			return storeDir, nil
 		}
 	}
+	if storeDir != "" {
+		log.Printf("Using password store dir: %q (from CLI/env)", storeDir)
+		return storeDir, nil
+	}
+	// If no store dir is configured, gopass will use its default.
 	return "", nil
 }
 
@@ -133,7 +155,16 @@ func main() {
 	// Write logs to stderr
 	log.Default().SetOutput(os.Stderr)
 
-	// Write the header:
+	flag.Parse()
+
+	if versionFlag {
+		fmt.Printf("%s\n\n", name)
+		fmt.Printf("%-14s %s\n", "GitVersion:", version)
+		fmt.Printf("%-14s %s\n", "BuildDate:", date)
+		os.Exit(0)
+	}
+
+	// Write the header
 	header := Header{
 		"OpenTofu-External-Key-Provider",
 		1,
@@ -154,15 +185,15 @@ func main() {
 		log.Fatalf("Failed to parse stdin: %v", err)
 	}
 
-	// Lookup secret path and password store dir from external state,
-	// with precedence for command-line args and env vars.
-	secretPath, err := secretPathFor(os.Args[1:], inMeta)
-	if err != nil {
-		log.Fatalf("Failed to determine secret path: %v", err)
-	}
-	storeDir, err := passwordStoreDirFor(inMeta)
+	// Lookup secret path and password store dir from input data,
+	// with fallback to command-line args and env vars.
+	storeDir, err := passwordStoreDirFor(inMeta, storeDir)
 	if err != nil {
 		log.Fatalf("Failed to determine password store: %v", err)
+	}
+	secretPath, err := secretPathFor(inMeta, secretPath)
+	if err != nil {
+		log.Fatalf("Failed to determine secret path: %v", err)
 	}
 
 	// Lookup the encryption secret from gopass.
@@ -182,8 +213,10 @@ func main() {
 	}
 
 	externalData := map[string]any{
-		"path":  secretPath,
-		"store": storeDir,
+		"path": secretPath,
+	}
+	if storeDir != "" {
+		externalData["store"] = storeDir
 	}
 	output := Output{
 		Keys: keys,

@@ -8,35 +8,28 @@ import (
 
 func TestSecretPathFor(t *testing.T) {
 	tests := []struct {
-		name    string
-		args    []string
-		input   Input
-		want    string
-		wantErr bool
+		name       string
+		input      Input
+		secretPath string
+		want       string
+		wantErr    bool
 	}{
 		{
-			name: "explicit path",
-			args: []string{"team/state"},
-			want: "team/state",
+			name:       "configured path",
+			secretPath: "team/state",
+			want:       "team/state",
 		},
 		{
-			name: "default path for new encryption",
-			want: "opentofu/state",
-		},
-		{
-			name: "stored path for decryption",
+			name: "stored path takes precedence",
 			input: &Metadata{ExternalData: map[string]any{
 				"path": "legacy/state",
 			}},
-			want: "legacy/state",
+			secretPath: "new/state",
+			want:       "legacy/state",
 		},
 		{
-			name: "explicit path overrides stored path",
-			args: []string{"new/state"},
-			input: &Metadata{ExternalData: map[string]any{
-				"path": "legacy/state",
-			}},
-			want: "new/state",
+			name:    "missing path",
+			wantErr: true,
 		},
 		{
 			name: "invalid stored path",
@@ -49,7 +42,7 @@ func TestSecretPathFor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := secretPathFor(tt.args, tt.input)
+			got, err := secretPathFor(tt.input, tt.secretPath)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("secretPathFor() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -61,12 +54,10 @@ func TestSecretPathFor(t *testing.T) {
 }
 
 func TestPasswordStoreDirFor(t *testing.T) {
-	t.Setenv(passwordStoreEnv, "")
-
 	stored := &Metadata{ExternalData: map[string]any{
 		"store": "/stored/passwords",
 	}}
-	got, err := passwordStoreDirFor(stored)
+	got, err := passwordStoreDirFor(stored, "/configured/passwords")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,21 +65,27 @@ func TestPasswordStoreDirFor(t *testing.T) {
 		t.Errorf("passwordStoreDirFor() = %q, want %q", got, "/stored/passwords")
 	}
 
-	t.Setenv(passwordStoreEnv, "/override/passwords")
-	got, err = passwordStoreDirFor(stored)
+	got, err = passwordStoreDirFor(nil, "/configured/passwords")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "/override/passwords" {
-		t.Errorf("passwordStoreDirFor() override = %q, want %q", got, "/override/passwords")
+	if got != "/configured/passwords" {
+		t.Errorf("passwordStoreDirFor() fallback = %q, want %q", got, "/configured/passwords")
+	}
+
+	got, err = passwordStoreDirFor(nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("passwordStoreDirFor() default = %q, want empty string", got)
 	}
 }
 
 func TestPasswordStoreDirForRejectsInvalidStoredValue(t *testing.T) {
-	t.Setenv(passwordStoreEnv, "")
 	_, err := passwordStoreDirFor(&Metadata{ExternalData: map[string]any{
 		"store": 42,
-	}})
+	}}, "")
 	if err == nil {
 		t.Fatal("passwordStoreDirFor() error = nil, want an error")
 	}
@@ -140,6 +137,19 @@ func TestParseInput(t *testing.T) {
 				t.Errorf("parseInput() external data = %#v, want %#v", got.ExternalData, tt.wantData)
 			}
 		})
+	}
+}
+
+func TestOutputOmitsUnconfiguredStore(t *testing.T) {
+	output := Output{Meta: Metadata{ExternalData: map[string]any{
+		"path": "opentofu/state",
+	}}}
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{"keys":{},"meta":{"external_data":{"path":"opentofu/state"}}}` {
+		t.Errorf("output = %s, want no empty store metadata", data)
 	}
 }
 
