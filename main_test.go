@@ -6,6 +6,60 @@ import (
 	"testing"
 )
 
+func TestSecretPathFor(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		input   Input
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "explicit path",
+			args: []string{"team/state"},
+			want: "team/state",
+		},
+		{
+			name: "default path for new encryption",
+			want: "opentofu/state",
+		},
+		{
+			name: "stored path for decryption",
+			input: &Metadata{ExternalData: map[string]any{
+				"path": "legacy/state",
+			}},
+			want: "legacy/state",
+		},
+		{
+			name: "explicit path overrides stored path",
+			args: []string{"new/state"},
+			input: &Metadata{ExternalData: map[string]any{
+				"path": "legacy/state",
+			}},
+			want: "new/state",
+		},
+		{
+			name: "invalid stored path",
+			input: &Metadata{ExternalData: map[string]any{
+				"path": 42,
+			}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := secretPathFor(tt.args, tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("secretPathFor() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("secretPathFor() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseInput(t *testing.T) {
 	tests := []struct {
 		name     string

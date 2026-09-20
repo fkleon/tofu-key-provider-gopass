@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"github.com/gopasspw/gopass/pkg/gopass"
 	"github.com/gopasspw/gopass/pkg/gopass/api"
 )
+
+const defaultSecretPath = "opentofu/state"
 
 // Header is the initial greeting the key provider sends out.
 type Header struct {
@@ -28,6 +31,25 @@ type Metadata struct {
 // Input describes the input data structure. This is nil on input if no existing
 // data needs to be decrypted.
 type Input *Metadata
+
+// secretPathFor returns the configured gopass path. An explicit command-line
+// path takes precedence, followed by the path stored in existing metadata, and
+// finally the default path.
+func secretPathFor(args []string, input Input) (string, error) {
+	if len(args) > 0 && args[0] != "" {
+		return args[0], nil
+	}
+	if input != nil {
+		if path, ok := input.ExternalData["path"]; ok {
+			path, ok := path.(string)
+			if !ok || path == "" {
+				return "", fmt.Errorf("external_data.path must be a non-empty string")
+			}
+			return path, nil
+		}
+	}
+	return defaultSecretPath, nil
+}
 
 // parseInput parses the metadata sent by OpenTofu. OpenTofu sends an object
 // with external_data set to null when it is encrypting new data. Treat that as
@@ -78,11 +100,6 @@ func main() {
 	// Write logs to stderr
 	log.Default().SetOutput(os.Stderr)
 
-	if len(os.Args) < 2 {
-		log.Fatalf("Secret path is required")
-	}
-	secretPath := os.Args[1]
-
 	// Write the header:
 	header := Header{
 		"OpenTofu-External-Key-Provider",
@@ -102,6 +119,10 @@ func main() {
 	inMeta, err := parseInput(input)
 	if err != nil {
 		log.Fatalf("Failed to parse stdin: %v", err)
+	}
+	secretPath, err := secretPathFor(os.Args[1:], inMeta)
+	if err != nil {
+		log.Fatalf("Failed to determine secret path: %v", err)
 	}
 
 	var keys Keys

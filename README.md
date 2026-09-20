@@ -32,13 +32,21 @@ encryption {
 }
 ```
 
+The path argument is optional. Without it, new-encryption requests use
+`opentofu/state`. For decryption requests, the path saved in `external_data.path`
+is used when no command-line path is supplied. An explicit command-line path
+takes precedence over saved metadata.
+
 The exact `encryption` block should match the OpenTofu version and encryption configuration you use; see the [OpenTofu encryption documentation](https://opentofu.org/docs/language/state/encryption/) for the surrounding configuration.
+
+You can select a non-default password store by setting the `PASSWORD_STORE_DIR` environment variable.
 
 ## Protocol behavior
 
 - The program prints the `OpenTofu-External-Key-Provider` header before reading stdin.
 - A request whose `external_data` is `null` is treated as a new-encryption request and produces only an encryption key.
 - A request containing existing `external_data` produces both encryption and decryption keys.
+- The gopass path defaults to `opentofu/state`, or is recovered from `external_data.path` during decryption.
 - Errors, including a missing gopass store or secret, are written to stderr and cause a non-zero exit.
 
 Do not use a gopass path that exposes sensitive information in logs or process-inspection tooling. Keep the gopass store and its backing keys protected.
