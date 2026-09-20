@@ -40,6 +40,7 @@ type Input *Metadata
 // finally the default path.
 func secretPathFor(args []string, input Input) (string, error) {
 	if len(args) > 0 && args[0] != "" {
+		log.Printf("Using secret path from CLI argument: %q", args[0])
 		return args[0], nil
 	}
 	if input != nil {
@@ -48,6 +49,7 @@ func secretPathFor(args []string, input Input) (string, error) {
 			if !ok || path == "" {
 				return "", fmt.Errorf("external_data.path must be a non-empty string")
 			}
+			log.Printf("Using secret path from external data: %q", path)
 			return path, nil
 		}
 	}
@@ -58,6 +60,7 @@ func secretPathFor(args []string, input Input) (string, error) {
 // variable overrides the value saved in existing metadata.
 func passwordStoreDirFor(input Input) (string, error) {
 	if storeDir := os.Getenv(passwordStoreEnv); storeDir != "" {
+		log.Printf("Using password store dir from env: %q", storeDir)
 		return storeDir, nil
 	}
 	if input != nil {
@@ -66,6 +69,7 @@ func passwordStoreDirFor(input Input) (string, error) {
 			if !ok || storeDir == "" {
 				return "", fmt.Errorf("external_data.store must be a non-empty string")
 			}
+			log.Printf("Using password store dir from external data: %q", storeDir)
 			return storeDir, nil
 		}
 	}
@@ -108,18 +112,18 @@ func lookupEncryptionSecret(storeDir, secretPath string) (gopass.Secret, error) 
 	// which is respected by gopass.
 	if storeDir != "" {
 		if err := os.Setenv(passwordStoreEnv, storeDir); err != nil {
-			return nil, fmt.Errorf("failed to configure password store: %w", err)
+			return nil, fmt.Errorf("configure password store: %w", err)
 		}
 	}
 
 	gp, err := api.New(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialise password store (dir=%q): %w", storeDir, err)
 	}
 
 	sec, err := gp.Get(ctx, secretPath, "latest")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get secret (store=%q path=%q): %w", storeDir, secretPath, err)
 	}
 
 	return sec, nil
