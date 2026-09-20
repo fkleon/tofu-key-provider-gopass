@@ -29,6 +29,20 @@ type Metadata struct {
 // data needs to be decrypted.
 type Input *Metadata
 
+// parseInput parses the metadata sent by OpenTofu. OpenTofu sends an object
+// with external_data set to null when it is encrypting new data. Treat that as
+// no existing metadata, rather than as a decryption request.
+func parseInput(data []byte) (Input, error) {
+	var input Input
+	if err := json.Unmarshal(data, &input); err != nil {
+		return nil, err
+	}
+	if input != nil && input.ExternalData == nil {
+		return nil, nil
+	}
+	return input, nil
+}
+
 type Keys struct {
 	// EncryptionKey must always be provided.
 	EncryptionKey []byte `json:"encryption_key,omitempty"`
@@ -85,8 +99,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to read stdin: %v", err)
 	}
-	var inMeta Input
-	if err := json.Unmarshal(input, &inMeta); err != nil {
+	inMeta, err := parseInput(input)
+	if err != nil {
 		log.Fatalf("Failed to parse stdin: %v", err)
 	}
 
