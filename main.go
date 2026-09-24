@@ -202,6 +202,7 @@ func main() {
 		log.Fatalf("Failed to lookup encryption key: %v", err)
 	}
 
+	// Construct response with base64-encoded secrets
 	key := []byte(sec.Password())
 	data := make([]byte, base64.StdEncoding.EncodedLen(len(key)))
 	base64.StdEncoding.Encode(data, key)
